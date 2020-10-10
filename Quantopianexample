@@ -1,0 +1,424 @@
+# Example backtest for one model
+#Rough Rice (y) vs Soybean Oil (x)
+# Library Imports
+import quantopian.algorithm as algo
+from quantopian.pipeline import Pipeline
+from quantopian.pipeline.data.builtin import USEquityPricing
+from quantopian.pipeline.filters import QTradableStocksUS
+import numpy as np
+
+# Initalize variables
+def initialize(context):
+    context.long = []
+    context.l = []
+    context.dubs = 0
+    context.s = []
+    context.xl = False
+    context.xs = False
+    context.yl = False
+    context.tradea = False
+    context.tradeb = False
+    context.ys = False
+    context.longx = 0
+    context.stocks = 0 
+    context.short = []
+    context.profits = 0
+    context.false = True
+    context.shorty = 0
+    context.longy = 0
+    context.boolean = True
+    context.traded_today = False
+    context.tr = []
+    context.owned = False
+    context.value = 0
+    context.shortx= 0
+    context.count = 0
+    
+    # Record tracking variables at the end of each day.
+    algo.schedule_function(
+        record_vars,
+        algo.date_rules.every_day(),
+        algo.time_rules.market_close(),
+    )
+    
+    #Fetches historical data each day
+    algo.schedule_function(
+        get_data,
+        algo.date_rules.every_day(),
+        algo.time_rules.market_open()
+        )
+    
+    #Fetches cotract (not needed)
+    algo.schedule_function(
+        get_contracts,
+        algo.date_rules.every_day(),
+        algo.time_rules.market_open()
+        )
+    
+    # Rebalance
+    algo.schedule_function(
+        rebalance,
+        algo.date_rules.every_day(),
+        algo.time_rules.market_open()
+        )
+    
+
+    context.C = continuous_future('CN', 
+                                   offset=1,  
+                                   roll='calendar',
+                                   adjustment='mul')
+    
+    
+    context.SOY = continuous_future('SY', offset=1, roll='volume', adjustment='mul'), 
+                                 
+    context.SM = continuous_future('SM',
+                                   offset=1,
+                                   roll='volume',
+                                   adjustment='mul')
+    context.SO = continuous_future('BO', 
+                                   offset=1, 
+                                   roll='volume', 
+                                   adjustment='mul')
+    context.RR = continuous_future('RR',
+                                   offset=1, 
+                                   roll = 'volume',
+                                   adjustment='mul')
+    context.W = continuous_future('WC', 
+                                   offset=1, 
+                                   roll='volume', 
+                                   adjustment='mul')
+    context.O = continuous_future('OA', offset=1, roll='volume', adjustment='mul'),
+    context.xcontrct = ''
+    context.ycontract = ''
+    context.x = []
+    context.y = []
+    
+# Gets 100 days of pricing data
+def get_data(context,data):
+    context.x  = list(data.history(context.SO,
+                         fields = 'price',
+                         bar_count = 100,
+                         frequency = '1d'))
+    context.x.append(0)
+    context.y = list(data.history(context.RR,
+                           fields = 'price',
+                           bar_count = 100,
+                           frequency = '1d'))
+    context.y.append(0)
+    return context.y, context.x
+
+# Gets current contracts
+def get_contracts(context, data):
+    context.xcontract = data.current(context.SO,
+                                'contract')
+    context.ycontract = data.current(context.RR,
+                                  'contract')
+    return [context.ycontract,
+            context.xcontract]
+
+# Creates model for the pair
+def roughricesoybeanoil(y,x):
+    y = list(y)
+    x = list(x)
+    adjustedy = []
+    adjyhat=[]
+    model1,yhat,ynew = model(y,x,1,6.369139780882339, 0.17499618677076834)
+    vals2 = AutoReg(model1,[1.008885710806952, -0.03739884926188736, 0.026530505678314893, 0.010255338868963088, -0.03063602530650995, -0.006004938677264541, 0.044524404506490096, -0.02217272872227653, -0.03815923658055007, 0.016308565881879407, 0.004566483117335006, 0.0056948884078970065, 0.0475135485039079, -0.05539417081745343, 0.08981726773421017, -0.11881345255489145, -0.0019586699323468, 0.036114231740302094, 0.004768489484604638, -0.05776317792413385, 0.04721813178602394, -0.004311084458611884, -0.006785730136772467, 0.07191409159290464, -0.0730786830422648, 0.00970942502163381, 0.054281361110866025, -0.037277962238610504, -0.050967053136744184, 0.05416834201816101])
+    vals = AutoReg(vals2,[0.9891646785917658])
+    weightedval = ynew[-1]-(vals[len(vals)-1]+yhat[-1])
+    return weightedval
+
+# Function for OLS model
+def model(y,x,val,param1,param2):
+    eps = []
+    mod=[]
+    ynew=[]
+    if val == 3:
+        for num in range(0,len(y)):
+            a = (y[num])
+            b = (np.log(x[num])*param2+param1)
+            eps.append(a-b)
+            mod.append((np.log(x[num])*param2+param1))
+            ynew.append(y[num])
+    elif val == 1:
+        for num in range(0,len(y)):
+            a = (y[num])
+            b = ((x[num])*param2+param1)
+            eps.append(a-b)
+            mod.append(((x[num])*param2+param1))
+            ynew.append(y[num])
+    elif val == 4:
+        for num in range(0,len(y)):
+            a = np.log(y[num])
+            b = (np.log(x[num])*param2+param1)
+            eps.append(a-b)
+            mod.append((np.log(x[num])*param2+param1))
+            ynew.append(np.log(y[num]))
+    if val == 2:
+        for num in range(0,len(y)):
+            a = np.log(y[num])
+            b = ((x[num])*param2+param1)
+            eps.append(a-b)
+            mod.append(((x[num])*param2+param1))
+            ynew.append(np.log(y[num]))
+    return eps,mod,ynew
+
+# Function for AutoRegression model
+def AutoReg(epsilon,params):
+    eps = []
+    maxlag = len(params)
+    for i in range(maxlag,len(epsilon)):
+       sum = 0
+       for lag in range(0,maxlag):
+            sum += float(params[lag]) * epsilon[i-lag-1]
+       eps.append(sum)
+    return eps
+
+# Functioning for differencing dataset
+def difference(epsilon,diff):
+    new_epsilon = []
+    for val in range(diff,len(epsilon)):
+        new_epsilon.append(epsilon[val] - epsilon[val-diff])
+    return new_epsilon
+    
+    
+    # Rebalance in case of contract rollover (unlikely)
+def rebalance(context,data):
+    context.traded_today = False
+    context.ycontract, context.xcontract = get_contracts(context,data)
+    if(len(context.long)>0):
+            if(context.long[0] != context.ycontract) and (context.long[0] != context.xcontract):
+                if(context.xl):
+                    a = context.longx
+                    algo.order_target_percent(context.long[0],0)
+                    context.long=[context.xcontract]
+                    context.longx = data.current(context.xcontract,'price')
+                    context.profits+=(data.current(context.xcontract,'price')-a)/a
+                    log.info('rebalance x on long')
+                elif(context.yl):
+                    a = context.longy
+                    algo.order_target_percent(context.long[0],0)
+                    context.long=[context.ycontract]
+                    context.longy = data.current(context.ycontract,'price')
+                    context.profits+=(data.current(context.ycontract,'price')-a)/a
+                    log.info('rebalance y on long')
+    if(len(context.short)>0):
+            if(context.short[0] != context.xcontract) and (context.short[0] != context.ycontract):
+                if(context.xs):   
+                    algo.order_target_percent(context.short[0],0)
+                    a = context.shortx
+                    context.shortx = data.current(context.xcontract,'price')
+                    context.short = [context.xcontract]
+                    context.profits-=(data.current(context.xcontract,'price')-a)/a
+                    log.info('rebalance x on short')
+                elif(context.ys):
+                    algo.order_target_percent(context.short[0],0)
+                    a = context.shorty
+                    context.shorty = data.current(context.ycontract,'price')
+                    context.short = [context.ycontract]
+                    context.profits-=(data.current(context.ycontract,'price')-a)/a
+                    log.info('rebalance y on long')
+
+def record_vars(context, data):
+    context.stocks += 1
+    #log.info(context.silvercontract)
+    #log.info(str('Day: ') +str(context.stocks))
+    #log.info(len(context.portfolio.positions))
+    if(context.stocks % 120 == 0):
+        log.info(context.l)
+        log.info(context.s)
+        
+        
+def handle_data(context, data):
+    mean = -0.0001759028499
+    std = 0.1899040859
+    if(len(context.y)>0):
+        context.ycontract, context.xcontract = get_contracts(context,data)
+        context.y[-1]  = data.current(context.ycontract,'price')
+        context.x[-1] = data.current(context.xcontract,'price')
+        context.value = roughricesoybeanoil(context.y,context.x)
+        if(not(context.ys) and not(context.yl) and not(context.xs) and not(context.xl)):
+            holdings = True
+        else:
+            holdings = False
+        if(context.owned == False and len(context.long) == 0 and len(context.short)==0):
+            if(context.value<mean -1.7*std) and (holdings == True):
+                context.xs = True
+                context.yl = True
+                log.info(context.value)
+                context.tradeb = True
+                log.info('Short X, Long Y')
+                log.info('X' + str(data.current(context.xcontract,'price')))
+                log.info('Y' + str(data.current(context.ycontract,'price')))
+                algo.order_target_percent(context.xcontract, 0)
+                context.short.append(context.xcontract)
+                context.owned = True
+                context.long.append(context.ycontract)
+                context.shortx = data.current(context.xcontract,'price')
+                context.longy = data.current(context.ycontract,'price')
+                context.l.append(data.current(context.ycontract,'price'))
+                context.s.append(data.current(context.xcontract,'price'))
+                
+            elif(context.value>mean
++1.7*std) and (holdings == True):
+                context.ys = True
+                context.xl = True
+                context.tradea = True
+                log.info('Short y, Long x')
+                log.info('x' + str(data.current(context.xcontract,'price')))
+                log.info('y' + str(data.current(context.ycontract,'price')))
+                algo.order_target_percent(context.xcontract, 0)
+                context.long = [context.xcontract]
+                context.owned = True
+                context.short = [context.ycontract]
+                context.longx = data.current(context.xcontract,'price')
+                context.shorty = data.current(context.ycontract,'price')
+                context.s.append(data.current(context.ycontract,'price'))
+                context.l.append(data.current(context.xcontract,'price'))
+                
+        if(len(context.long)>0):
+            contract = context.long[0]
+            if((context.value < mean
++0.4*std) and (context.xcontract in context.long) and len(context.short)>0):
+                context.tradea = False
+                log.info('Sell x, Buy back y')
+                algo.order_target_percent(context.long[0],0)
+                context.l.append(data.current(context.xcontract,'price'))
+                context.s.append(data.current(context.ycontract,'price'))
+                context.long = []
+                context.xl = False
+                context.ys = False
+                context.short = []
+                context.profits+=((data.current(context.xcontract,'price')-context.longx)/context.longx)
+                context.profits-=((data.current(context.ycontract,'price')-context.shorty)/context.shorty)
+                context.owned = False
+                context.traded_today = True
+                context.tr.append(data.current(context.xcontract,'price')-context.longx)
+                log.info('x' + str(data.current(context.xcontract,'price')))
+                log.info('y' + str(data.current(context.ycontract,'price')))
+            elif context.xcontract == contract:
+                if(context.value < mean +0.4*std) and (len(context.short)==0):
+                    log.info('Sell x')
+                    context.trade = False
+                    context.l.append(data.current(context.xcontract,'price'))
+                    log.info(data.current(context.xcontract,'price'))
+                    context.owned = False
+                    context.xl = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.xcontract,'price')-                                        context.longx)
+                    context.long = []
+                    context.boolean = False
+                    context.profits+=(data.current(context.xcontract,'price')-                                        context.longx)/context.longx
+                    context.count += 1
+                elif(data.current(context.xcontract,'price')<context.longx*0):
+                    log.info('stop loss')
+                    context.trade = False
+                    context.l.append(data.current(context.xcontract,'price'))
+                    log.info(data.current(context.xcontract,'price'))
+                    context.owned = False
+                    context.xl = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.xcontract,'price')-                                        context.longx)
+                    context.long = []
+                    context.boolean = False
+                    context.profits+=(data.current(context.xcontract,'price')-                                        context.longx)/context.longx
+                    context.count += 1
+            elif(context.ycontract == contract):
+                if(context.value > mean -0.4*std)and len(context.short)==0:
+                    context.tradeb = False
+                    log.info('Sell y')
+                    context.yl = False
+                    context.boolean = False
+                    context.l.append(data.current(context.ycontract,'price'))
+                    log.info(data.current(context.ycontract,'price'))
+                    context.owned = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.ycontract,'price')-                                        context.longy)
+                    context.long = []
+                    context.profits+=(data.current(context.ycontract,'price')-                                        context.longy)/context.longy
+                    context.count += 1
+                elif(data.current(context.ycontract,'price')<context.longy*0):
+                    context.tradeb = False
+                    log.info('stop loss')
+                    context.yl = False
+                    context.boolean = False
+                    context.l.append(data.current(context.ycontract,'price'))
+                    log.info(data.current(context.ycontract,'price'))
+                    context.owned = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.ycontract,'price')-                                        context.longy)
+                    context.long = []
+                    context.profits+=(data.current(context.ycontract,'price')-                                        context.longy)/context.longy
+                    context.count += 1
+            
+        if(len(context.short)>0):
+            contract = context.short[0]
+            if(context.value > mean-0.4*std and (context.xcontract in context.short) and len(context.long)>0):
+                log.info('Buy Back x, sell y')
+                context.tradeb = False
+                log.info('x' + str(data.current(context.xcontract,'price')))
+                log.info('y' + str(data.current(context.ycontract,'price')))
+                context.xs = False
+                context.yl = False
+                context.owned = False
+                context.profits-=((data.current(context.xcontract,'price')-context.shortx)/context.shortx)
+                context.profits+=((data.current(context.ycontract,'price')-context.longy)/context.longy)
+                context.traded_today = True
+                context.l.append(data.current(context.ycontract,'price'))
+                context.tr.append(data.current(context.xcontract,'price')-context.shortx)
+                context.s.append(data.current(context.xcontract,'price'))
+                
+                context.short = []
+                context.long = []
+                algo.order_target_percent(context.xcontract, 0)
+            elif(contract == context.xcontract):
+                if(context.value > mean-0.4*std) and (len(context.long) == 0):
+                    log.info('Buy Back x')
+                    context.tradeb = False
+                    context.xs = False
+                    context.traded_today = True
+                    context.tr.append((data.current(context.xcontract,'price')-                                    context.shortx)/context.shortx)
+                    context.s.append(data.current(context.xcontract,'price'))
+                    context.profits-=(data.current(context.xcontract,'price')-                                    context.shortx)/context.shortx
+                    log.info(data.current(context.xcontract,'price'))
+                    context.owned = False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.xcontract,'price')>context.shortx*2):
+                    log.info('stop loss')
+                    context.tradeb = False
+                    context.xs = False
+                    context.traded_today = True
+                    context.tr.append((data.current(context.xcontract,'price')-                                    context.shortx)/context.shortx)
+                    context.s.append(data.current(context.xcontract,'price'))
+                    context.profits-=(data.current(context.xcontract,'price')-                                    context.shortx)/context.shortx
+                    log.info(data.current(context.xcontract,'price'))
+                    context.owned = False
+                    context.count += 1
+                    context.short = []
+            elif(context.ycontract == contract):
+                if(context.value < mean+0.4*std) and len(context.long)==0:
+                    log.info('Buy Back y')
+                    context.tradea = False
+                    context.traded_today = True
+                    context.ys = False
+                    context.tr.append((data.current(context.ycontract,'price')-                                    context.shorty)/context.shorty)
+                    context.s.append(data.current(context.ycontract,'price'))
+                    context.profits-=(data.current(context.ycontract,'price')-                                    context.shorty)/context.shorty
+                    log.info(data.current(context.ycontract,'price'))
+                    context.owned = False
+                    context.short = []
+                    context.count += 1
+                elif(data.current(context.ycontract,'price')>context.shorty*2):
+                    log.info('stop loss')
+                    context.tradea = False
+                    context.traded_today = True
+                    context.ys = False
+                    context.tr.append((data.current(context.ycontract,'price')-                                    context.shorty)/context.shorty)
+                    context.s.append(data.current(context.ycontract,'price'))
+                    context.profits-=(data.current(context.ycontract,'price')-                                    context.shorty)/context.shorty
+                    log.info(data.current(context.ycontract,'price'))
+                    context.owned = False
+                    context.short = []
+                    context.count += 1
+        record(NetProfit = context.profits)

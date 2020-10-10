@@ -1,0 +1,1691 @@
+# Summary of this code:
+# Each function allows for a model of a pair to be created
+# Each function is called every minute in the handle_data functio
+# The value returned from these functions are compared to standard deviatio values
+# If there is a signficant differece, a trade is made
+# See the discussion file for further explanation on the model
+
+# Imports
+import quantopian.algorithm as algo
+from quantopian.pipeline import Pipeline
+from quantopian.pipeline.data.builtin import USEquityPricing
+from quantopian.pipeline.filters import QTradableStocksUS
+import numpy as np
+
+# Initalize - called once to create constants
+def initialize(context):
+    context.contracts = []
+    context.long = []
+    context.owned = False
+    context.short = []
+    context.longsilver = 0
+    context.shortsilver= 0
+    context.longgold = 0
+    context.shortgold = 0
+    context.longcopper = 0
+    context.shortcopper = 0
+    context.longplatinum = 0
+    context.shortplatinum = 0
+    context.longpalladium = 0
+    context.shortpalladium = 0
+    context.goldsilver1 = False
+    context.goldcopper1 = False
+    context.goldpalladium1 = False
+    context.goldplatinum1 = False
+    context.copperpalladium1 = False
+    context.silverpalladium1 = False
+    context.silverplatinum1 = False
+    context.silvercopper1 = False
+    context.copperplatinum1 = False
+    context.longx = 0
+    context.stocks = 0 
+    context.short = []
+    context.profits = 0
+    context.false = True
+    context.shorty = 0
+    context.longy = 0
+    context.boolean = True
+    context.traded_today = False
+    context.tr = []
+    context.owned = False
+    context.value = 0
+    context.shortx= 0
+    context.count = 0
+    
+    # Record tracking variables at the end of each day.
+    algo.schedule_function(
+        record_vars,
+        algo.date_rules.every_day(),
+        algo.time_rules.market_close(),
+    )
+    
+    #Fetches historical data each day
+    algo.schedule_function(
+        get_data,
+        algo.date_rules.every_day(),
+        algo.time_rules.market_open()
+        )
+    
+    #Fetches cotract (not needed)
+    algo.schedule_function(
+        get_contracts,
+        algo.date_rules.every_day(),
+        algo.time_rules.market_open()
+        )
+    
+    # Rebalance
+    algo.schedule_function(
+        rebalance,
+        algo.date_rules.every_day(),
+        algo.time_rules.market_open()
+        )
+    
+    context.goldstd = 0
+    context.silverstd = 0
+    context.copperstd = 0
+    context.palladiumstd = 0
+    context.platinumstd = 0
+    
+    # Get data values for all metals
+    context.GC = continuous_future("GC", 
+                                   offset=1,  
+                                   roll='volume',
+                                   adjustment='mul')
+    
+    
+    context.PA = continuous_future('PA', 
+                                   offset=1, 
+                                   roll='volume', 
+                                   adjustment='mul'), 
+                                 
+    context.SV = continuous_future('SV',
+                                   offset=1,
+                                   roll='volume',
+                                   adjustment='mul')
+    context.PL = continuous_future('PL', 
+                                   offset=1, 
+                                   roll='volume', 
+                                   adjustment='mul')
+    context.HG = continuous_future('HG',
+                                   offset=1, 
+                                   roll = 'volume',
+                                   adjustment='mul')
+    context.silvercontrct = ''
+    context.goldcontract = ''
+    context.coppercontract = ''
+    context.palladiumcontract = ''
+    context.platinumcontract = ''
+    context.gold = []
+    context.silver = [] 
+    context.copper = []
+    context.palladium = []
+    context.platinum = []
+
+# Runs every minute of backtest
+def get_data(context,data):
+    context.copper  = list(data.history(context.HG,
+                         fields = 'price',
+                         bar_count = 100,
+                         frequency = '1d'))
+    context.copper.append(0)
+    context.silver = list(data.history(context.SV,
+                           fields = 'price',
+                           bar_count = 100,
+                           frequency = '1d'))
+    context.silver.append(0)
+    context.palladium  = list(data.history(context.PA,
+                         fields = 'price',
+                         bar_count = 100,
+                         frequency = '1d'))
+    context.palladium.append(0)
+    context.platinum = list(data.history(context.PL,
+                           fields = 'price',
+                           bar_count = 100,
+                           frequency = '1d'))
+    context.platinum.append(0)
+    context.gold = list(data.history(context.GC,
+                           fields = 'price',
+                           bar_count = 100,
+                           frequency = '1d'))
+    context.gold.append(0)
+    return context.gold,context.silver,context.palladium,context.copper,context.platinum
+
+def get_contracts(context, data):
+    context.coppercontract = data.current(context.HG,
+                                'contract')
+    context.goldcontract = data.current(context.GC,
+                                  'contract')
+    context.silvercontract = data.current(context.SV,
+                                  'contract')
+    context.palladiumcontract = data.current(context.PA,
+                                  'contract')
+    context.platinumcontract = data.current(context.PL,
+                                  'contract')
+    return [context.goldcontract,
+           context.silvercontract,
+           context.coppercontract,
+           context.palladiumcontract,
+           context.platinumcontract]
+
+
+# Model 2 - Gold v Copper                     
+def goldcopper(y,x):
+    y = list(y)
+    x = list(x)
+    adjustedy = []
+    adjyhat=[]
+    model1,yhat,ynew = model(y,x,2,6.85363792560481,0.12274166926561736)
+    vals = AutoReg(model1, [0.9663724912211216, -0.02101755899652041, 0.05191635065912223])
+    weightedval = ynew[-1]-(vals[len(vals)-1]+yhat[-1])
+    mean = 0.0005603271632
+    std = 0.01928901757
+    return weightedval,mean,std
+       
+# Model 4 - Gold V. Platinum
+def goldplatinum(y,x):
+    y = list(y)
+    x = list(x)
+    adjustedy = []
+    adjyhat=[]
+    model1,yhat,ynew = model(y,x,2,7.007873804183073, 0.00017910882637365715)
+    vals = AutoReg(model1, [0.9507108545946988, 0.0006037595520357597, 0.013839072052069114, -0.04431085699787024, 0.07838280491870041])
+    weightedval = ynew[-1]-(vals[len(vals)-1]+yhat[-1])
+    mean = 0.001115132691
+    std = 0.02104692884
+    return weightedval,mean,std
+
+# Model 9 - Copper Palladium
+def copperpalladium(y,x):
+    y = list(y)
+    x = list(x)
+    adjustedy = []
+    adjyhat=[]
+    model1,yhat,ynew = model(y,x,3,0.0,0.44488458251624097)
+    vals = AutoReg(model1, [0.954042086531411, 0.036349513484382666, -0.005736234398423613, -0.009680191561013716, -0.012162337168224017, 0.0008585245739137735, 0.05378814567141319, -0.03755156417322389, 0.00719063390418824, 0.010094731381635354, 0.10183948570338204, -0.14279119232684517, -0.0018398611824793631, 0.04339068222428083])
+    weightedval = ynew[-1]-(vals[len(vals)-1]+yhat[-1])
+    mean = -0.006227146195
+    std = 0.1499368684
+    return weightedval,mean,std
+
+# Model 5 - Silver Palladium
+def silverpalladium(y,x):
+    y = list(y)
+    x = list(x)
+    adjustedy = []
+    adjyhat=[]
+    model1,yhat,ynew = model(y,x,4,0.0,0.44241837661823474)
+    vals = AutoReg(model1, [0.9424175765066538, 0.03025456248438898, 0.030901798418352465, -0.05460397723859946, 0.040569684439609885, 0.029579713737301117, -0.0016066196932016663, -0.020071897801230698, -0.004548641333261355, 0.019554432097119934, -0.012903711069608498, 0.025609573698700754, -0.023530435067537048, -0.05122282951339421, 0.038485008893201195, -0.02793038196984713, -0.06508220415009355, 0.07096565620635545, 0.02454748902085345, -0.014268585218613648, 0.007917989174962094, 0.019905933107800443, 0.024771358934623074, -0.06602061133970889, 0.03647518842635802, 0.01829385487637593, 0.011845450264965786, -0.08045610611150694, 0.10330179146766534, -0.05446528423129621])
+    weightedval = ynew[-1]-(vals[len(vals)-1]+yhat[-1])
+    mean = -0.00505811398
+    std = 0.09467513051
+    return weightedval,mean,std
+
+# Model 3 = Gold v. Palladium
+def goldpalladium(y,x):
+    y = list(y)
+    x = list(x)
+    adjustedy = []
+    adjyhat=[]
+    model1,yhat,ynew = model(y,x,4,0.0,1.068387112726726)
+    vals = AutoReg(model1, [1.0293286519971512, -0.043454779678302406, -0.034528723404231805, 0.06299379364052962, -0.0425121965928133, 0.03301237659175557, 0.00021886769436924025, -0.09789801561110249, 0.08312075090442522, -0.04442526303533828, 0.05595249728583776, -0.057300809053518795, 0.05752033207904836, 0.01445557211660584, -0.07527696189875392, 0.06366364490532023, -0.04066604094263532, 0.00752722160353363, -0.012081416623124265, 0.025585458307493397, -0.012137499228247792, -0.022542219559008234, 0.04816452627764696])
+    weightedval = ynew[-1]-(vals[len(vals)-1]+yhat[-1])
+    mean = -0.01157603473
+    std = 0.09680768047
+    return weightedval,mean,std
+
+# Model 6 - Copper Platinum
+def copperplatinum(y,x):
+    y = list(y)
+    x = list(x)
+    adjustedy = []
+    adjyhat=[]
+    model1,yhat,ynew = model(y,x,1,1.2527895282220451, 0.0014623874571379758)
+    model2 = AutoReg(model1, [0.9330734105830235, 0.007161874433955329, 0.023007936975326326, -0.027365535960322433, 0.0011611965985220858, 0.021837059373407033, 0.014709771985748386, -0.028806213638425462, 0.005998362384359029, 0.02500612552382646, 0.062165521770936524, -0.04676863330932787])
+    vals = AutoReg(model2,[0.9894328428835037])
+    weightedval = ynew[-1]-(vals[len(vals)-1]+yhat[-1])
+    mean = 0.0002144312177
+    std = 0.04742581124
+    return weightedval, mean, std
+
+# Model 7 - Silver Platinum
+def silverplatinum(y,x):
+    y = list(y)
+    x = list(x)
+    adjustedy = []
+    adjyhat=[]
+    model1,yhat,ynew = model(y,x,2,2.077783600551163, 0.0007627721708074171)
+    model2 = AutoReg(model1, [0.8643558451188116, 0.023090925085259693, -0.029412810583892182, 0.04362094469602133, 0.05486974600016394, 0.002548711686776804, 0.030765033659141704, -0.02398581817601827, 0.020450383612089167, 0.02113500721653199, -0.02868036145574202, 0.020463572996646414, 0.011741749481029226, -0.007263040660563484, -0.04711710743365196, 0.015700361342530503, -0.011412899961964056, 0.03890113504068443, -0.008175804489943168, -0.009997882571685504, -0.004507636043523751, 0.04708746884431894, -0.0018885459670660368, -0.05403026469534217, 0.0426730169852144, -0.03907374030401915, 0.04612914154703217, -0.06502292871274648, 0.11823965603787695, -0.07711806519661325])
+    vals = AutoReg(model2,[0.989275935089618])
+    weightedval = ynew[-1]-(vals[len(vals)-1]+yhat[-1])
+    mean = 9.29E-05
+    std = 0.02216270259
+    return weightedval, mean, std
+
+# Model 8 - Silver Copper
+def silvercopper(y,x):
+    y = list(y)
+    x = list(x)
+    adjustedy = []
+    adjyhat=[]
+    model1,yhat,ynew = model(y,x,3,0.0, 19.566944487899356)
+    model2 = AutoReg(model1, [0.8748581936769195, 0.09198225596639736, 0.04099653883598451, -0.09089528057951834, -0.006796771897173372, 0.04565796898521369, 0.06687178451786166, -0.048638253662282874, 0.020492041920900282, 0.013831525288900645, -0.011943103155790915, 0.01712524359839744, 0.007982129161617276, -0.03549682425193519, 0.0010544622291655467, -0.0331992091265641, -0.0002122672863868677, 0.04220964455557438, 0.0066883270230319244, -0.01661548820711596, -0.013426981535391139, 0.06569812648427381, -0.02559047648102633, -0.07335085704620242, 0.0427493657905585, 0.027078772712945506, 0.001373436812706394, -0.08097499813593839, 0.04532548558245764, -0.0089137567790539, 0.03713861273244711, -0.013896900778067378, 0.025431061414667736, -0.0219125953500051, 0.04877609746797225, -0.02112374686229361, -0.0356960952908198, -0.009711924054571733, 0.0958603233021852, -0.059949157284896075, 0.014732047251048083, -0.06135765552431522, -0.012273366383300066, 0.0355400865888013, 0.016095069415059084, -0.028835272971702762, 0.04411824503506215, -0.09332340926478358, 0.035491908441331516, 0.025861376466062586, -0.023963866617661797, 0.03811922616193379, 0.010097182216047988, -0.08295624152601003, 0.06671826364681609])
+    vals = AutoReg(model2,[0.9933057343480642])
+    weightedval = ynew[-1]-(vals[len(vals)-1]+yhat[-1])
+    mean = -0.002879650738
+    std = 0.5708101562
+    return weightedval, mean, std
+
+ # Model 1 - Gold v. Silver
+def goldsilver(y,x):
+    y = list(y)
+    x = list(x)
+    adjustedy = []
+    adjyhat=[]
+    model1,yhat,ynew = model(y,x,2,6.924148883431860,0.014297936333746025)
+    model2 = AutoReg(model1, [0.7472185258390451, 0.14911986946643194, 0.10237014575026332, -0.06008501689400815, -0.0032074070493597062, 0.005795207665609849, 0.03518724541145106, -0.019577477325213005, 0.05220813960108284, -0.01100974998707726, -0.033725791928325845, 0.03663577579104444, -0.018239044916841973, -0.006027861372100356, 0.022037404790921384, 0.0063500017193551216, -0.04616002701965603, 0.036500880842664785, 0.022261478329009682, -0.002532959953895908, -0.039958791488754336, 0.05061856217161917, -0.009798615465238941, -0.012497819829292704, 0.0012800921365553053, -0.013047320448969203, -0.001509358463609077, -0.08106471869434492, 0.07735147277712823, -0.004362586365006964, 0.012826348626974148, -0.01385213443480629, 0.026687142918525936, -0.03371976414194008, 0.036495049431941214, 0.008640877796701175, -0.008360080600492412, 0.051093539823519274, -0.02245455713831348, -0.008785112741155177, 0.017880080000870963, -0.03268921032057768, -0.03377914911791761, -0.0331605862511526, 0.015328619854886177, 0.04107286990650826, 0.023399453534587493, -0.04001208689371661, -0.03558982642186405, 9.773542505036453e-05, -0.01928745889838346, 0.03433210523526582, 0.030005919157103336])
+    vals = AutoReg(model2,[0.9956774798167932])
+    weightedval = ynew[-1]-(vals[len(vals)-1]+yhat[-1])
+    mean = 8.89E-05
+    std = 0.01220063802
+    return weightedval, mean, std
+
+#Creates OLS model
+def model(y,x,val,param1,param2):
+    eps = []
+    mod=[]
+    ynew=[]
+    if val == 3:
+        for num in range(0,len(y)):
+            a = (y[num])
+            b = (np.log(x[num])*param2+param1)
+            eps.append(a-b)
+            mod.append((np.log(x[num])*param2+param1))
+            ynew.append(y[num])
+    elif val == 1:
+        for num in range(0,len(y)):
+            a = (y[num])
+            b = ((x[num])*param2+param1)
+            eps.append(a-b)
+            mod.append(((x[num])*param2+param1))
+            ynew.append(y[num])
+    elif val == 4:
+        for num in range(0,len(y)):
+            a = np.log(y[num])
+            b = (np.log(x[num])*param2+param1)
+            eps.append(a-b)
+            mod.append((np.log(x[num])*param2+param1))
+            ynew.append(np.log(y[num]))
+    if val == 2:
+        for num in range(0,len(y)):
+            a = np.log(y[num])
+            b = ((x[num])*param2+param1)
+            eps.append(a-b)
+            mod.append(((x[num])*param2+param1))
+            ynew.append(np.log(y[num]))
+    return eps,mod,ynew
+
+# Creates AR model
+def AutoReg(epsilon,params):
+    eps = []
+    maxlag = len(params)
+    for i in range(maxlag,len(epsilon)):
+       sum = 0
+       for lag in range(0,maxlag):
+            sum += float(params[lag]) * epsilon[i-lag-1]
+       eps.append(sum)
+    return eps
+                     
+# differences a dataset
+def difference(epsilon,diff):
+    new_epsilon = []
+    for val in range(diff,len(epsilon)):
+        new_epsilon.append(epsilon[val] - epsilon[val-diff])
+    return new_epsilon
+    
+    
+    # Rebalance in case of contract rollover (unlikely)
+def rebalance(context,data):
+    context.stocks += 1
+    context.contracts.append(get_contracts(context,data))
+    if(len(context.contracts)>1):
+        if(len(context.long)>0):
+            if(context.goldsilver1):
+                for val in [0,1]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.long):
+                        if(len(context.long)==1):
+                            context.long = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.long[0] == context.contracts[0][val]):
+                           context.long[0] = context.contracts[1][val]
+                        else:
+                           context.long[1] = context.contracts[1][val]
+            if(context.goldcopper1):
+                for val in [0,2]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.long):
+                        if(len(context.long)==1):
+                            context.long = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.long[0] == context.contracts[0][val]):
+                           context.long[0] = context.contracts[1][val]
+                        else:
+                           context.long[1] = context.contracts[1][val]
+            if(context.goldpalladium1):
+                for val in [0,3]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.long):
+                        if(len(context.long)==1):
+                            context.long = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.long[0] == context.contracts[0][val]):
+                           context.long[0] = context.contracts[1][val]
+                        else:
+                           context.long[1] = context.contracts[1][val]
+            if(context.goldplatinum1):
+                for val in [0,4]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.long):
+                        if(len(context.long)==1):
+                            context.long = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.long[0] == context.contracts[0][val]):
+                           context.long[0] = context.contracts[1][val]
+                        else:
+                           context.long[1] = context.contracts[1][val]
+            if(context.silverpalladium1):
+                for val in [1,3]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.long):
+                        if(len(context.long)==1):
+                            context.long = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.long[0] == context.contracts[0][val]):
+                           context.long[0] = context.contracts[1][val]
+                        else:
+                           context.long[1] = context.contracts[1][val]
+            if(context.copperplatinum1):
+                for val in [2,4]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.long):
+                        if(len(context.long)==1):
+                            context.long = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.long[0] == context.contracts[0][val]):
+                           context.long[0] = context.contracts[1][val]
+                        else:
+                           context.long[1] = context.contracts[1][val]
+            if(context.silverplatinum1):
+                for val in [1,4]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.long):
+                        if(len(context.long)==1):
+                            context.long = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.long[0] == context.contracts[0][val]):
+                           context.long[0] = context.contracts[1][val]
+                        else:
+                           context.long[1] = context.contracts[1][val]
+            if(context.silvercopper1):
+                for val in [1,2]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.long):
+                        if(len(context.long)==1):
+                            context.long = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.long[0] == context.contracts[0][val]):
+                           context.long[0] = context.contracts[1][val]
+                        else:
+                           context.long[1] = context.contracts[1][val]
+            if(context.copperpalladium1):
+                for val in [2,3]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.long):
+                        if(len(context.long)==1):
+                            context.long = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.long[0] == context.contracts[0][val]):
+                           context.long[0] = context.contracts[1][val]
+                        else:
+                           context.long[1] = context.contracts[1][val]
+        if(len(context.short)>0):
+            if(context.goldsilver1):
+                for val in [0,1]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.short):
+                        if(len(context.short)==1):
+                            context.short = [context.contracts[1][val]]
+                        elif(context.short[0] == context.contracts[0][val]):
+                           context.short[0] = context.contracts[1][val]
+                        else:
+                           context.short[1] = context.contracts[1][val]
+            if(context.goldcopper1):
+                for val in [0,2]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.short):
+                        if(len(context.short)==1):
+                            context.short = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.short[0] == context.contracts[0][val]):
+                           context.short[0] = context.contracts[1][val]
+                        else:
+                           context.short[1] = context.contracts[1][val]
+            if(context.goldpalladium1):
+                for val in [0,3]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.short):
+                        if(len(context.short)==1):
+                            context.short = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.short[0] == context.contracts[0][val]):
+                           context.short[0] = context.contracts[1][val]
+                        else:
+                           context.short[1] = context.contracts[1][val]
+            if(context.goldplatinum1):
+                for val in [0,4]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.short):
+                        if(len(context.short)==1):
+                            context.short = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.short[0] == context.contracts[0][val]):
+                           context.short[0] = context.contracts[1][val]
+                        else:
+                           context.short[1] = context.contracts[1][val]
+            if(context.silverpalladium1):
+                for val in [1,3]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.short):
+                        if(len(context.short)==1):
+                            context.short = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.short[0] == context.contracts[0][val]):
+                           context.short[0] = context.contracts[1][val]
+                        else:
+                           context.short[1] = context.contracts[1][val]
+            if(context.copperplatinum1):
+                for val in [2,4]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.short):
+                        if(len(context.short)==1):
+                            context.short = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.short[0] == context.contracts[0][val]):
+                           context.short[0] = context.contracts[1][val]
+                        else:
+                           context.short[1] = context.contracts[1][val]
+            if(context.silverplatinum1):
+                for val in [1,4]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.short):
+                        if(len(context.short)==1):
+                            context.short = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.short[0] == context.contracts[0][val]):
+                           context.short[0] = context.contracts[1][val]
+                        else:
+                           context.short[1] = context.contracts[1][val]
+            if(context.silvercopper1):
+                for val in [1,2]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.short):
+                        if(len(context.short)==1):
+                            context.short = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.short[0] == context.contracts[0][val]):
+                           context.short[0] = context.contracts[1][val]
+                        else:
+                           context.short[1] = context.contracts[1][val]
+            if(context.copperpalladium1):
+                for val in [2,3]:
+                    if(context.contracts[0][val]!=context.contracts[1][val] and context.contracts[0][val] in context.short):
+                        if(len(context.short)==1):
+                            context.short = [context.contracts[1][val]]
+                            log.info('rebalance')
+                        elif(context.short[0] == context.contracts[0][val]):
+                           context.short[0] = context.contracts[1][val]
+                        else:
+                           context.short[1] = context.contracts[1][val]
+        context.contracts.pop(0)
+        
+# Rebalance if Quantopian forgot to change a variable
+def record_vars(context, data):
+    if(len(context.short) ==0and len(context.long)==0):
+        context.owned = False
+        context.goldsilver1 = False
+        context.goldcopper1 = False
+        context.goldpalladium1 = False
+        context.goldplatinum1 = False
+        context.copperpalladium1 = False
+        context.silverpalladium1 = False
+        context.silverplatinum1 = False
+        context.silvercopper1 = False
+        context.copperplatinum1 = False
+
+        # Called once every minute
+def handle_data(context, data):
+
+    # Gets the values of each model
+    if(len(context.gold)>0):
+        context.gold[-1]  = data.current(context.goldcontract,'price')
+        context.silver[-1] = data.current(context.silvercontract,'price')
+        context.copper[-1]  = data.current(context.coppercontract,'price')
+        context.palladium[-1] = data.current(context.palladiumcontract,'price')
+        context.platinum[-1] = data.current(context.platinumcontract,'price')
+        if(len(context.gold)>2):
+           if(len(context.silver)>2):
+               context.value1, mean1, std1 = goldsilver(context.gold,context.silver)
+           else:
+               context.value1 = 0
+               mean1=0
+               std1=0
+           if(len(context.copper)>2):
+              context.value2, mean2, std2 = goldcopper(context.gold,context.copper)
+           else:
+               context.value2 = 0
+               mean2=0
+               std2=0
+           if(len(context.palladium)>2):
+              context.value3, mean3, std3 = goldpalladium(context.gold,context.palladium)
+           else:
+               context.value3 = 0
+               mean3=0
+               std3=0
+           if(len(context.platinum)>2):
+              context.value4, mean4, std4 = goldplatinum(context.gold,context.platinum)
+           else:
+               context.value4 = 0
+               mean4=0
+               std4=0
+           
+        if(len(context.silver)>2):
+           if(len(context.copper)>2) and False:
+              context.value8, mean8, std8 = silvercopper(context.silver,context.copper)
+           else:
+               context.value8 = 0
+               mean8=0
+               std8=0
+           if(len(context.palladium)>2):
+              context.value5, mean5, std5 = silverpalladium(context.silver,context.palladium)
+           else:
+               context.value5 = 0
+               mean5=0
+               std5=0
+           if(len(context.platinum)>2):
+              context.value7, mean7, std7 = silverplatinum(context.silver,context.platinum)
+           else:
+               context.value7 = 0
+               mean7=0
+               std7=0
+        if(len(context.copper)>2):
+           if(len(context.palladium)>2):
+              context.value9, mean9, std9 = copperpalladium(context.copper,context.palladium)
+           else:
+               context.value9 = 0
+               mean9=0
+               std9=0
+           if(len(context.platinum)>2) and False:
+              context.value6, mean6, std6 = copperplatinum(context.copper,context.platinum)
+           else:
+               context.value6 = 0
+               mean6=0
+               std6=0
+        # If values are significant, make a trade
+        if(context.owned == False and len(context.long)==0 and len(context.short)==0):
+            if(context.value1<mean1 -1.7*std1):
+                algo.order_target_percent(context.silvercontract,-0.5)
+                algo.order_target_percent(context.goldcontract,0.5)
+                context.goldsilver1 = True
+                log.info('Short Silver, Long Gold')
+                log.info('Silver' + str(data.current(context.silvercontract,'price')))
+                log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                algo.order_target_percent(context.goldcontract, 0)
+                context.short = [context.silvercontract]
+                context.long= [context.goldcontract]
+                context.owned = True
+                context.shortsilver = data.current(context.silvercontract,'price')
+                context.longgold = data.current(context.goldcontract,'price')
+            elif(context.value1>mean1+1.7*std1):
+                algo.order_target_percent(context.silvercontract,0.5)
+                algo.order_target_percent(context.goldcontract,-0.5)
+                context.goldsilver1 = True
+                log.info('Short Gold, Long Silver')
+                log.info('Silver' + str(data.current(context.silvercontract,'price')))
+                log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                algo.order_target_percent(context.silvercontract, 0)
+                context.short.append(context.goldcontract)
+                context.long.append(context.silvercontract)
+                context.owned = True
+                context.longsilver = data.current(context.silvercontract,'price')
+                context.shortgold = data.current(context.goldcontract,'price')
+            elif(context.value2<mean2 -1.7*std2):
+                algo.order_target_percent(context.coppercontract,-0.5)
+                algo.order_target_percent(context.goldcontract,0.5)
+                context.goldcopper1 = True
+                log.info('Short Copper, Long Gold')
+                log.info('Copper' + str(data.current(context.coppercontract,'price')))
+                log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                algo.order_target_percent(context.goldcontract, 0)
+                context.short.append(context.coppercontract)
+                context.long.append(context.goldcontract)
+                context.owned = True
+                context.shortcopper = data.current(context.coppercontract,'price')
+                context.longgold = data.current(context.goldcontract,'price')
+            elif(context.value2>mean2+1.7*std2):
+                algo.order_target_percent(context.goldcontract,-0.5)
+                algo.order_target_percent(context.coppercontract,0.5)
+                context.goldcopper1 = True
+                log.info('Short Gold, Long Copper')
+                log.info('Copper' + str(data.current(context.coppercontract,'price')))
+                log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                algo.order_target_percent(context.goldcontract, 0)
+                context.short.append(context.goldcontract)
+                context.long.append(context.coppercontract)
+                context.owned = True
+                context.longcopper = data.current(context.coppercontract,'price')
+                context.shortgold = data.current(context.goldcontract,'price')
+            elif(context.value3<mean3 -1.7*std3):                           
+                context.goldpalladium1 = True
+                log.info('Short Palladium, Long Gold')
+                log.info('Palladium' + str(data.current(context.palladiumcontract,'price')))
+                log.info('Gold' + str(data.current(context.contractcontract,'price')))
+                algo.order_target_percent(context.palladiumcontract, 0)
+                context.short.append(context.palladiumcontract)
+                context.long.append(context.goldcontract)
+                context.owned = True
+                algo.order_target_percent(context.goldcontract,0.5)
+                algo.order_target_percent(context.palladiumcontract,-0.5)
+                context.shortpalladium = data.current(context.palladiumcontract,'price')
+                context.longgold = data.current(context.goldcontract,'price')
+            elif(context.value3>mean3+1.7*std3):
+                algo.order_target_percent(context.goldcontract,-0.5)
+                algo.order_target_percent(context.palladiumcontract,0.5)
+                context.goldpalladium1 = True
+                log.info('Short Gold, Long Palladium')
+                log.info('Palladium' + str(data.current(context.palladiumcontract,'price')))
+                log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                algo.order_target_percent(context.contract, 0)
+                context.short.append(context.goldcontract)
+                context.long.append(context.palladiumcontract)
+                context.owned = True
+                context.longpalladium = data.current(context.palladiumcontract,'price')
+                context.shortgold = data.current(context.goldcontract,'price')
+            elif(context.value4<mean4 -1.7*std4):
+                algo.order_target_percent(context.goldcontract,0.5)
+                algo.order_target_percent(context.platinumcontract,-0.5)
+                context.goldplatinum1 = True
+                log.info('Short Platinum, Long Gold')
+                log.info('Platinum' + str(data.current(context.platinumcontract,'price')))
+                log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                algo.order_target_percent(context.goldcontract, 0)
+                context.short.append(context.platinumcontract)
+                context.long.append(context.goldcontract)
+                context.owned = True
+                context.shortplatinum = data.current(context.platinumcontract,'price')
+                context.longgold = data.current(context.goldcontract,'price')
+            elif(context.value4>mean4+1.7*std4):
+                algo.order_target_percent(context.goldcontract,-0.5)
+                algo.order_target_percent(context.platinumcontract,0.5)
+                context.goldplatinum1 = True
+                log.info('Short Gold, Long Platinum')
+                log.info('Platinum' + str(data.current(context.platinumcontract,'price')))
+                log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                algo.order_target_percent(context.silvercontract, 0)
+                context.short.append(context.goldcontract)
+                context.long.append(context.platinumcontract)
+                context.owned = True
+                context.longplatinum = data.current(context.platinumcontract,'price')
+                context.shortgold = data.current(context.goldcontract,'price')
+            elif(context.value5<mean5 -1.7*std5):
+                algo.order_target_percent(context.silvercontract,0.5)
+                algo.order_target_percent(context.palladiumcontract,-0.5)
+                context.silverpalladium1 = True
+                log.info('Short Palladium, Long Silver')
+                log.info('Palladium' + str(data.current(context.palladiumcontract,'price')))
+                log.info('Silver' + str(data.current(context.silvercontract,'price')))
+                algo.order_target_percent(context.silvercontract, 0)
+                context.short.append(context.palladiumcontract)
+                context.long.append(context.silvercontract)
+                context.owned = True
+                context.shortpalladium = data.current(context.palladiumcontract,'price')
+                context.longsilver = data.current(context.silvercontract,'price')
+            elif(context.value5>mean5+1.7*std5):
+                algo.order_target_percent(context.silvercontract,-0.5)
+                algo.order_target_percent(context.palladiumcontract,0.5)
+                context.silverpalladium1 = True
+                log.info('Short Silver, Long Palladium')
+                log.info('Palladium' + str(data.current(context.palladiumcontract,'price')))
+                log.info('Silver' + str(data.current(context.silvercontract,'price')))
+                algo.order_target_percent(context.contract, 0)
+                context.short.append(context.silvercontract)
+                context.long.append(context.palladiumcontract)
+                context.owned = True
+                context.longpalladium = data.current(context.palladiumcontract,'price')
+                context.shortsilver = data.current(context.silvercontract,'price')
+            elif(context.value6<mean6 -1.7*std6):
+                algo.order_target_percent(context.platinumcontract,-0.5)
+                algo.order_target_percent(context.coppercontract,0.5)
+                context.copperplatinum1 = True
+                log.info('Short Platinum, Long Copper')
+                log.info('Copper' + str(data.current(context.coppercontract,'price')))
+                log.info('Platinum' + str(data.current(context.platinumcontract,'price')))
+                algo.order_target_percent(context.coppercontract, 0)
+                context.short.append(context.platinumcontract)
+                context.long.append(context.coppercontract)
+                context.owned = True
+                context.shortplatinum = data.current(context.platinumcontract,'price')
+                context.longcopper = data.current(context.coppercontract,'price')
+            elif(context.value6>mean6+1.7*std6):
+                algo.order_target_percent(context.platinumcontract,0.5)
+                algo.order_target_percent(context.coppercontract,-0.5)
+                context.copperplatinum1 = True
+                log.info('Short Copper, Long Platinum')
+                log.info('Platinum' + str(data.current(context.platinumcontract,'price')))
+                log.info('Copper' + str(data.current(context.coppercontract,'price')))
+                algo.order_target_percent(context.coppercontract, 0)
+                context.short.append(context.coppercontract)
+                context.long.append(context.platinumcontract)
+                context.owned = True
+                context.longplatinum = data.current(context.platinumcontract,'price')
+                context.shortcopper= data.current(context.coppercontract,'price')
+            elif(context.value7<mean7 -1.7*std7):
+                algo.order_target_percent(context.platinumcontract,-0.5)
+                algo.order_target_percent(context.silvercontract,0.5)
+                context.silverplatinum1 = True
+                log.info('Short Platinum, Long Silver')
+                log.info(context.value7)
+                log.info('Platinum' + str(data.current(context.platinumcontract,'price')))
+                log.info('Silver' + str(data.current(context.silvercontract,'price')))
+                algo.order_target_percent(context.silvercontract, 0)
+                context.short.append(context.platinumcontract)
+                context.long.append(context.silvercontract)
+                context.owned = True
+                context.shortplatinum = data.current(context.platinumcontract,'price')
+                context.longsilver = data.current(context.silvercontract,'price')
+                algo.order_target_percent(context.platinumcontract,-0.5)
+                algo.order_target_percent(context.silvercontract,0.5)
+            elif(context.value7>mean7+1.7*std7):
+                algo.order_target_percent(context.platinumcontract,0.5)
+                algo.order_target_percent(context.silvercontract,-0.5)
+                context.silverplatinum1 = True
+                log.info('Short Silver, Long Platinum')
+                log.info('Platinum' + str(data.current(context.platinumcontract,'price')))
+                log.info('Silver' + str(data.current(context.silvercontract,'price')))
+                algo.order_target_percent(context.silvercontract, 0)
+                context.short.append(context.silvercontract)
+                context.long.append(context.platinumcontract)
+                context.owned = True
+                context.longplatinum = data.current(context.platinumcontract,'price')
+                context.shortsilver = data.current(context.silvercontract,'price')
+            elif(context.value8<mean8 -1.7*std8):
+                algo.order_target_percent(context.coppercontract,-0.5)
+                algo.order_target_percent(context.silvercontract,0.5)
+                context.silvercopper1 = True
+                log.info('Short Copper, Long Silver')
+                log.info('Copper' + str(data.current(context.coppercontract,'price')))
+                log.info('Silver' + str(data.current(context.silvercontract,'price')))
+                algo.order_target_percent(context.silvercontract, 0)
+                context.short.append(context.coppercontract)
+                context.long.append(context.silvercontract)
+                context.owned = True
+                context.shortcopper = data.current(context.coppercontract,'price')
+                context.longsilver = data.current(context.silvercontract,'price')
+            elif(context.value8>mean8+1.7*std8):
+                algo.order_target_percent(context.coppercontract,0.5)
+                algo.order_target_percent(context.silvercontract,-0.5)
+                context.silvercopper1 = True
+                log.info('Short Silver, Long Copper')
+                log.info('Copper' + str(data.current(context.coppercontract,'price')))
+                log.info('Silver' + str(data.current(context.silvercontract,'price')))
+                algo.order_target_percent(context.silvercontract, 0)
+                context.short.append(context.silvercontract)
+                context.long.append(context.coppercontract)
+                context.owned = True
+                context.longcopper = data.current(context.coppercontract,'price')
+                context.shortsilver = data.current(context.silvercontract,'price')
+            elif(context.value9<mean9 -1.7*std9):
+                algo.order_target_percent(context.coppercontract,0.5)
+                algo.order_target_percent(context.palladiumcontract,-0.5)
+                context.copperpalladium1 = True
+                log.info('Short Palladium, Long Copper')
+                log.info('Palladium' + str(data.current(context.palladiumcontract,'price')))
+                log.info('Copper' + str(data.current(context.coppercontract,'price')))
+                algo.order_target_percent(context.coppercontract, 0)
+                context.short.append(context.palladiumcontract)
+                context.long.append(context.coppercontract)
+                context.owned = True
+                context.shortpalladium = data.current(context.palladiumcontract,'price')
+                context.longcopper = data.current(context.coppercontract,'price')
+            elif(context.value9>mean9+1.7*std9):
+                algo.order_target_percent(context.coppercontract,-0.5)
+                algo.order_target_percent(context.palladiumcontract,0.5)
+                context.copperpalladium1 = True
+                log.info('Short copper, Long Palladium')
+                log.info('Palladium' + str(data.current(context.palladiumcontract,'price')))
+                log.info('Copper' + str(data.current(context.coppercontract,'price')))
+                algo.order_target_percent(context.coppercontract, 0)
+                context.short.append(context.coppercontract)
+                context.long.append(context.palladiumcontract)
+                context.owned = True
+                context.longpalladium = data.current(context.palladiumcontract,'price')
+                context.shortcopper = data.current(context.coppercontract,'price')
+           
+        if(len(context.long)>0):
+
+            contract = context.long[0]
+
+            if(context.goldsilver1):
+                if((context.value1 < mean1+0.4*std1) and (len(context.short)>0) and (context.silvercontract in context.long)):
+                    algo.order_target_percent(context.goldcontract,0)
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('Sell silver, Buy back gold')
+                    algo.order_target_percent(context.long[0],0)
+                    context.long = []
+                    context.short = []
+                    context.goldsilver1=False
+                    context.profits+=((data.current(context.silvercontract,'price')-                                   context.longsilver)/context.longsilver)
+                    context.profits-=((data.current(context.goldcontract,'price')-                                     context.shortgold)/context.shortgold)
+                    context.owned = False
+                    log.info('Silver' + str(data.current(context.silvercontract,'price')))
+                    log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                elif(context.value1< mean1+0.4*std1) and (len(context.short)==0) and (context.silvercontract in context.long):
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('Sell Silver')
+                    context.owned = False
+                    context.goldsilver1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.silvercontract,'price')-                                        context.longsilver)
+                    context.long = []
+                    context.profits+=(data.current(context.silvercontract,'price')-                                        context.longsilver)/context.longsilver
+                    log.info('Silver' + str(data.current(context.silvercontract,'price')))
+                    log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                elif(data.current(context.silvercontract,'price')<context.longsilver*0.99) and (context.silvercontract in context.long):
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.silvercontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.silvercontract,'price')-                                        context.longsilver)/context.longsilver
+                if((context.value1 > mean1-0.4*std1) and (len(context.short)>0) and (context.goldcontract in context.long)):
+                    algo.order_target_percent(context.goldcontract,0)
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('Sell Gold, Buy back Silver')
+                    algo.order_target_percent(context.long[0],0)
+                    context.long = []
+                    context.short = []
+                    context.profits-=((data.current(context.silvercontract,'price')-                                   context.shortsilver)/context.shortsilver)
+                    context.profits+=((data.current(context.goldcontract,'price')-                                     context.longgold)/context.longgold)
+                    context.owned = False
+                    context.goldsilver1 = False
+                    log.info('Silver' + str(data.current(context.silvercontract,'price')))
+                    log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                elif(context.value1 > mean1 -0.4*std1) and (len(context.short)==0) and (context.goldcontract in context.long):
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('Sell Gold')
+                    context.owned = False
+                    context.goldsilver1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.goldcontract,'price')-                                        context.longgold)
+                    context.long = []
+                    context.profits+=(data.current(context.goldcontract,'price')-                                        context.longgold)/context.longgold
+                    log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                elif(data.current(context.goldcontract,'price')<context.longgold*0.99) and (context.goldcontract in context.long):
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.goldcontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.goldcontract,'price')-                                        context.longgold)/context.longgold
+            if(context.goldcopper1):
+                if((context.value2 < mean2+0.4*std2) and (len(context.short)>0) and (context.coppercontract in context.long)):
+                    algo.order_target_percent(context.goldcontract,0)
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('Sell copper, Buy back gold')
+                    algo.order_target_percent(context.long[0],0)
+                    context.long = []
+                    context.short = []
+                    context.goldcopper1=False
+                    context.profits+=((data.current(context.coppercontract,'price')-                                   context.longcopper)/context.longcopper)
+                    context.profits-=((data.current(context.goldcontract,'price')-                                     context.shortgold)/context.shortgold)
+                    context.owned = False
+                    log.info('copper' + str(data.current(context.coppercontract,'price')))
+                    log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                elif(context.value2 < mean2 +0.4*std2) and (len(context.short)==0) and (context.coppercontract in context.long):
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('Sell copper')
+                    context.owned = False
+                    context.goldcopper1= False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.coppercontract,'price')-                                        context.longcopper)
+                    context.long = []
+                    context.profits+=(data.current(context.coppercontract,'price')-                                        context.longcopper)/context.longcopper
+                    log.info('copper' + str(data.current(context.coppercontract,'price')))
+                    log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                elif(data.current(context.coppercontract,'price')<context.longcopper*0.99) and (context.coppercontract in context.long):
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.coppercontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.coppercontract,'price')-                                        context.longcopper)/context.longcopper
+                if((context.value2 > mean2-0.4*std2) and (len(context.short)>0) and (context.goldcontract in context.long)):
+                    algo.order_target_percent(context.goldcontract,0)
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('Sell Gold, Buy back copper')
+                    algo.order_target_percent(context.long[0],0)
+                    context.long = []
+                    context.short = []
+                    context.profits-=((data.current(context.coppercontract,'price')-                                   context.shortcopper)/context.shortcopper)
+                    context.profits+=((data.current(context.goldcontract,'price')-                                     context.longgold)/context.longgold)
+                    context.owned = False
+                    context.goldcopper1 = False
+                    log.info('copper' + str(data.current(context.coppercontract,'price')))
+                    log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                elif(context.value2 > mean2 -0.4*std2) and (len(context.short)==0) and (context.goldcontract in context.long):
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('Sell Gold')
+                    context.owned = False
+                    context.goldcopper1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.goldcontract,'price')-                                        context.longgold)
+                    context.long = []
+                    context.profits+=(data.current(context.goldcontract,'price')-                                        context.longgold)/context.longgold
+                    log.info('Gold' + str(data.current(context.coppercontract,'price')))
+                elif(data.current(context.goldcontract,'price')<context.longgold*0.99) and (context.goldcontract in context.long):
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.goldcontract,'price'))
+                    context.long = []
+                    context.profits+=((data.current(context.goldcontract,'price')-                                        context.longgold)/context.longgold)
+            if(context.goldpalladium1):
+                if((context.value3 < mean3+0.4*std3) and (len(context.short)>0) and (context.palladiumcontract in context.long)):
+                    log.info('Sell palladium, Buy back gold')
+                    algo.order_target_percent(context.goldcontract,0)
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    context.long = []
+                    context.short = []
+                    context.goldpalladium1=False
+                    context.profits+=((data.current(context.palladiumcontract,'price')-                                   context.longpalladium)/context.longpalladium)
+                    context.profits-=((data.current(context.goldcontract,'price')-                                     context.shortgold)/context.shortgold)
+                    context.owned = False
+                    log.info('palladium' + str(data.current(context.palladiumcontract,'price')))
+                    log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                elif(context.value3 < mean3 +0.4*std3) and (len(context.short)==0) and (context.palladiumcontract in context.long):
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('Sell palladium')
+                    context.owned = False
+                    context.goldpalladium1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.palladiumcontract,'price')-                                        context.longpalladium)
+                    context.long = []
+                    context.profits+=(data.current(context.palladiumcontract,'price')-                                        context.longpalladium)/context.longpalladium
+                    log.info('palladium' + str(data.current(context.palladiumcontract,'price')))
+                    log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                elif(data.current(context.palladiumcontract,'price')<context.longpalladium*0.99) and (context.palladiumcontract in context.long):
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.palladiumcontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.palladiumcontract,'price')-                                        context.longpalladium)/context.longpalladium
+                if((context.value3 > mean3-0.4*std3) and (len(context.short)>0) and (context.goldcontract in context.long)):
+                    algo.order_target_percent(context.goldcontract,0)
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('Sell Gold, Buy back palladium')
+                    algo.order_target_percent(context.long[0],0)
+                    context.long = []
+                    context.short = []
+                    context.profits-=((data.current(context.palladiumcontract,'price')-                                   context.longpalladium)/context.longpalladium)
+                    context.profits+=((data.current(context.goldcontract,'price')-                                     context.shortgold)/context.shortgold)
+                    context.owned = False
+                    context.goldpalladium1 = False
+                    log.info('palladium' + str(data.current(context.palladiumcontract,'price')))
+                    log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                elif(context.value3 > mean3 -0.4*std3) and (len(context.short)==0) and (context.goldcontract in context.long):
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('Sell Gold')
+                    context.owned = False
+                    context.goldpalladium1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.goldcontract,'price')-                                        context.longgold)
+                    context.long = []
+                    context.profits+=(data.current(context.goldcontract,'price')-                                        context.longgold)/context.longgold
+                    log.info('Gold' + str(data.current(context.palladiumcontract,'price')))
+                elif(data.current(context.goldcontract,'price')<context.longgold*0.99) and (context.sgoldcontract in context.long):
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.goldcontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.goldcontract,'price')-                                        context.longgold)/context.longgold
+            if(context.goldplatinum1):
+                if((context.value4 < mean4+0.4*std4) and (len(context.short)>0) and (context.platinumcontract in context.long)):
+                    algo.order_target_percent(context.goldcontract,0)
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('Sell platinum, Buy back gold')
+                    algo.order_target_percent(context.long[0],0)
+                
+                    context.long = []
+                    context.short = []
+                    context.goldplatinum1=False
+                    context.profits+=((data.current(context.platinumcontract,'price')-                                   context.longplatinum)/context.longplatinum)
+                    context.profits-=((data.current(context.goldcontract,'price')-                                     context.shortgold)/context.shortgold)
+                    context.owned = False
+                    log.info('platinum' + str(data.current(context.platinumcontract,'price')))
+                    log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                elif(context.value4 < mean4 +0.4*std4) and (len(context.short)==0) and (context.platinumcontract in context.long):
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('Sell platinum')
+                    context.owned = False
+                    context.goldplatinum1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.platinumcontract,'price')-                                        context.longplatinum)
+                    context.long = []
+                    context.profits+=(data.current(context.platinumcontract,'price')-                                        context.longplatinum)/context.longplatinum
+                    log.info('platinum' + str(data.current(context.platinumcontract,'price')))
+                    log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                elif(data.current(context.platinumcontract,'price')<context.longplatinum*0.99) and (context.platinumcontract in context.long):
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.platinumcontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.platinumcontract,'price')-                                        context.longplatinum)/context.longplatinum
+                if((context.value4 > mean4-0.4*std4) and (len(context.short)>0) and (context.goldcontract in context.long)):
+                    algo.order_target_percent(context.goldcontract,0)
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('Sell Gold, Buy back platinum')
+                    algo.order_target_percent(context.long[0],0)
+                    context.long = []
+                    context.short = []
+                    context.profits-=((data.current(context.platinumcontract,'price')-                                   context.shortplatinum)/context.shortplatinum)
+                    context.profits+=((data.current(context.goldcontract,'price')-                                     context.longgold)/context.longgold)
+                    context.owned = False
+                    context.goldplatinum1 = False
+                    log.info('platinum' + str(data.current(context.platinumcontract,'price')))
+                    log.info('Gold' + str(data.current(context.goldcontract,'price')))
+                elif(context.value4 > mean4 -0.4*std4) and (len(context.short)==0) and (context.goldcontract in context.long):
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('Sell Gold')
+                    context.owned = False
+                    context.goldplatinum1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.goldcontract,'price')-                                        context.longgold)
+                    context.long = []
+                    context.profits+=(data.current(context.goldcontract,'price')-                                        context.longgold)/context.longgold
+                    log.info('Gold' + str(data.current(context.platinumcontract,'price')))
+                elif(data.current(context.goldcontract,'price')<context.longgold*0.99) and (context.goldcontract in context.long):
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.goldcontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.goldcontract,'price')-                                        context.longgold)/context.longgold
+            if(context.silverplatinum1):
+                if((context.value7 < mean7+0.4*std7) and (len(context.short)>0) and (context.platinumcontract in context.long)):
+                    algo.order_target_percent(context.silvercontract,0)
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('Sell platinum, Buy back silver')
+                    algo.order_target_percent(context.long[0],0)
+                    context.long = []
+                    context.short = []
+                    context.silverplatinum1=False
+                    context.profits+=((data.current(context.platinumcontract,'price')-                                   context.longplatinum)/context.longplatinum)
+                    context.profits-=((data.current(context.silvercontract,'price')-                                     context.shortsilver)/context.shortsilver)
+                    context.owned = False
+                    log.info('platinum' + str(data.current(context.platinumcontract,'price')))
+                    log.info('silver' + str(data.current(context.silvercontract,'price')))
+                elif(context.value7 < mean7 +0.4*std7) and (len(context.short)==0) and (context.platinumcontract in context.long):
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('Sell platinum')
+                    context.owned = False
+                    context.silverplatinum1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.platinumcontract,'price')-                                        context.longplatinum)
+                    context.long = []
+                    context.profits+=(data.current(context.platinumcontract,'price')-                                        context.longplatinum)/context.longplatinum
+                    log.info('platinum' + str(data.current(context.platinumcontract,'price')))
+                    log.info('silver' + str(data.current(context.silvercontract,'price')))
+                elif(data.current(context.platinumcontract,'price')<context.longplatinum*0.99) and (context.platinumcontract in context.long):
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.platinumcontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.platinumcontract,'price')-                                        context.longplatinum)/context.longplatinum
+                if((context.value7 > mean7-0.4*std7) and (len(context.short)>0) and (context.silvercontract in context.long)):
+                    algo.order_target_percent(context.silvercontract,0)
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('Sell silver, Buy back platinum')
+                    algo.order_target_percent(context.long[0],0)
+                    context.long = []
+                    context.short = []
+                    context.profits-=((data.current(context.platinumcontract,'price')-                                   context.shortplatinum)/context.shortplatinum)
+                    context.profits+=((data.current(context.silvercontract,'price')-                                     context.longsilver)/context.longsilver)
+                    context.owned = False
+                    context.silverplatinum1 = False
+                    log.info('platinum' + str(data.current(context.platinumcontract,'price')))
+                    log.info('silver' + str(data.current(context.silvercontract,'price')))
+                elif(context.value7> mean7 -0.4*std7) and (len(context.short)==0) and (context.silvercontract in context.long):
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('Sell silver')
+                    context.owned = False
+                    context.silverplatinum1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.silvercontract,'price')-                                        context.longsilver)
+                    context.long = []
+                    context.profits+=(data.current(context.silvercontract,'price')-                                        context.longsilver)/context.longsilver
+                    log.info('silver' + str(data.current(context.platinumcontract,'price')))
+                elif(data.current(context.silvercontract,'price')<context.longsilver*0.99) and (context.silvercontract in context.long):
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.silvercontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.silvercontract,'price')-                                        context.longsilver)/context.longsilver
+            if(context.silverpalladium1):
+                if((context.value5 < mean5+0.4*std5) and (len(context.short)>0) and (context.palladiumcontract in context.long)):
+                    log.info('Sell palladium, Buy back silver')
+                    algo.order_target_percent(context.long[0],0)
+                    algo.order_target_percent(context.silvercontract,0)
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    
+                    context.long = []
+                    context.short = []
+                    context.silverpalladium1=False
+                    context.profits+=((data.current(context.palladiumcontract,'price')-                                   context.longpalladium)/context.longpalladium)
+                    context.profits-=((data.current(context.silvercontract,'price')-                                     context.shortsilver)/context.shortsilver)
+                    context.owned= False
+                    log.info('palladium' + str(data.current(context.palladiumcontract,'price')))
+                    log.info('silver' + str(data.current(context.silvercontract,'price')))
+                elif(context.value5 < mean5 +0.4*std5) and (len(context.short)==0) and (context.palladiumcontract in context.long):
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('Sell palladium')
+                    context.owned = False
+                    context.silverpalladium1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.palladiumcontract,'price')-                                        context.longpalladium)
+                    context.long = []
+                    context.profits+=(data.current(context.palladiumcontract,'price')-                                        context.longpalladium)/context.longpalladium
+                    log.info('palladium' + str(data.current(context.palladiumcontract,'price')))
+                    log.info('silver' + str(data.current(context.silvercontract,'price')))
+                elif(data.current(context.palladiumcontract,'price')<context.longpalladium*0.99) and (context.palladiumcontract in context.long):
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.palladiumcontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.palladiumcontract,'price')-                                        context.longpalladium)/context.longpalladium
+                if((context.value5 > mean5-0.4*std5) and (len(context.short)>0) and (context.silvercontract in context.long)):
+                    algo.order_target_percent(context.silvercontract,0)
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('Sell silver, Buy back palladium')
+                    algo.order_target_percent(context.long[0],0)
+                    context.long = []
+                    context.short = []
+                    context.profits-=((data.current(context.palladiumcontract,'price')-                                   context.longpalladium)/context.longpalladium)
+                    context.profits+=((data.current(context.silvercontract,'price')-                                     context.shortsilver)/context.shortsilver)
+                    context.owned = False
+                    context.silverpalladium1 = False
+                    log.info('palladium' + str(data.current(context.palladiumcontract,'price')))
+                    log.info('silver' + str(data.current(context.silvercontract,'price')))
+                elif(context.value5 >mean5 -0.4*std5) and (len(context.short)==0) and (context.silvercontract in context.long):
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('Sell silver')
+                    context.owned = False
+                    context.silverpalladium1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.silvercontract,'price')-                                        context.longsilver)
+                    context.long = []
+                    context.profits+=(data.current(context.silvercontract,'price')-                                        context.longsilver)/context.longsilver
+                    log.info('silver' + str(data.current(context.palladiumcontract,'price')))
+                elif(data.current(context.silvercontract,'price')<context.longsilver*0.99) and (context.silvercontract in context.long):
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.silvercontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.silvercontract,'price')-                                        context.longsilver)/context.longsilver
+            if(context.copperpalladium1):
+                if((context.value9 < mean9+0.4*std9) and (len(context.short)>0) and (context.palladiumcontract in context.long)):
+                    log.info('Sell palladium, Buy back copper')
+                    algo.order_target_percent(context.long[0],0)
+                    algo.order_target_percent(context.coppercontract,0)
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    context.long = []
+                    context.short = []
+                    context.copperpalladium1=False
+                    context.profits+=((data.current(context.palladiumcontract,'price')-                                   context.longpalladium)/context.longpalladium)
+                    context.profits-=((data.current(context.coppercontract,'price')-                                     context.shortcopper)/context.shortcopper)
+                    context.owned = False
+                    log.info('palladium' + str(data.current(context.palladiumcontract,'price')))
+                    log.info('copper' + str(data.current(context.coppercontract,'price')))
+                elif(context.value9 < mean9 +0.4*std9) and (len(context.short)==0) and (context.palladiumcontract in context.long):
+                    algo.order_target_percent(context.coppercontract,0)
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('Sell palladium')
+                    context.owned = False
+                    context.copperpalladium1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.palladiumcontract,'price')-                                        context.longpalladium)
+                    context.long = []
+                    context.profits+=(data.current(context.palladiumcontract,'price')-                                        context.longpalladium)/context.longpalladium
+                    log.info('palladium' + str(data.current(context.palladiumcontract,'price')))
+                    log.info('copper' + str(data.current(context.coppercontract,'price')))
+                elif(data.current(context.palladiumcontract,'price')<context.longpalladium*0.99) and (context.palladiumcontract in context.long):
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.palladiumcontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.palladiumcontract,'price')-                                        context.longpalladium)/context.longpalladium
+                if((context.value9 > mean9-0.4*std9) and (len(context.short)>0) and (context.coppercontract in context.long)):
+                    algo.order_target_percent(context.coppercontract,0)
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('Sell copper, Buy back palladium')
+                    algo.order_target_percent(context.long[0],0)
+                    context.long = []
+                    context.short = []
+                    context.profits-=((data.current(context.palladiumcontract,'price')-                                   context.longpalladium)/context.longpalladium)
+                    context.profits+=((data.current(context.coppercontract,'price')-                                     context.shortcopper)/context.shortcopper)
+                    context.owned = False
+                    context.copperpalladium1 = False
+                    log.info('palladium' + str(data.current(context.palladiumcontract,'price')))
+                    log.info('copper' + str(data.current(context.coppercontract,'price')))
+                elif(context.value9 >mean9 -0.4*std9) and (len(context.short)==0) and (context.coppercontract in context.long):
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('Sell copper')
+                    context.owned = False
+                    context.copperpalladium1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.coppercontract,'price')-                                        context.longcopper)
+                    context.long = []
+                    context.profits+=(data.current(context.coppercontract,'price')-                                        context.longcopper)/context.longcopper
+                    log.info('copper' + str(data.current(context.palladiumcontract,'price')))
+                elif(data.current(context.coppercontract,'price')<context.longcopper*0.99) and (context.coppercontract in context.long):
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.coppercontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.coppercontract,'price')-                                        context.longcopper)/context.longcopper
+               
+
+            if(context.copperplatinum1):
+                if((context.value6 < mean6+0.4*std6) and (len(context.short)>0) and (context.platinumcontract in context.long)):
+                    algo.order_target_percent(context.coppercontract,0)
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('Sell platinum, Buy back copper')
+                    algo.order_target_percent(context.long[0],0)
+                    
+                    context.long = []
+                    context.short = []
+                    context.copperplatinum1=False
+                    context.profits+=((data.current(context.platinumcontract,'price')-                                   context.longplatinum)/context.longplatinum)
+                    context.profits-=((data.current(context.coppercontract,'price')-                                     context.shortcopper)/context.shortcopper)
+                    context.owned = False
+                    log.info('platinum' + str(data.current(context.platinumcontract,'price')))
+                    log.info('copper' + str(data.current(context.coppercontract,'price')))
+                elif(context.value6 < mean6 +0.4*std6) and (len(context.short)==0) and (context.platinumcontract in context.long):
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('Sell platinum')
+                    context.owned= False
+                    context.copperplatinum1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.platinumcontract,'price')-                                        context.longplatinum)
+                    context.long = []
+                    context.profits+=(data.current(context.platinumcontract,'price')-                                        context.longplatinum)/context.longplatinum
+                    log.info('platinum' + str(data.current(context.platinumcontract,'price')))
+                    log.info('copper' + str(data.current(context.coppercontract,'price')))
+                elif(data.current(context.platinumcontract,'price')<context.longplatinum*0.99) and (context.platinumcontract in context.long):
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.platinumcontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.platinumcontract,'price')-                                        context.longplatinum)/context.longplatinum
+                if((context.value6 > mean6-0.4*std6) and (len(context.short)>0) and (context.coppercontract in context.long)):
+                    algo.order_target_percent(context.coppercontract,0)
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('Sell copper, Buy back platinum')
+                    algo.order_target_percent(context.long[0],0)
+                    context.long = []
+                    context.short = []
+                    context.profits-=((data.current(context.platinumcontract,'price')-                                   context.shortplatinum)/context.shortplatinum)
+                    context.profits+=((data.current(context.coppercontract,'price')-                                     context.longcopper)/context.longcopper)
+                    context.owned = False
+                    context.copperplatinum1 = False
+                    log.info('platinum' + str(data.current(context.platinumcontract,'price')))
+                    log.info('copper' + str(data.current(context.coppercontract,'price')))
+                elif(context.value6 >mean6 -0.4*std6) and (len(context.short)==0) and (context.coppercontract in context.long):
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('Sell copper')
+                    context.owned = False
+                    context.copperplatinum1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.coppercontract,'price')-                                        context.longcopper)
+                    context.long = []
+                    context.profits+=(data.current(context.coppercontract,'price')-                                        context.longcopper)/context.longcopper
+                    log.info('copper' + str(data.current(context.coppercontract,'price')))
+                elif(data.current(context.coppercontract,'price')<context.longcopper*0.99) and (context.coppercontract in context.long):
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.coppercontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.coppercontract,'price')-                                        context.longcopper)/context.longcopper
+               
+            if(context.silvercopper1):
+                if((context.value8 < mean8+0.4*std8) and (len(context.short)>0) and (context.coppercontract in context.long)):
+                    algo.order_target_percent(context.coppercontract,0)
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('Sell copper, Buy back silver')
+                    algo.order_target_percent(context.long[0],0)
+                   
+                    context.long = []
+                    context.short = []
+                    context.silvercopper1=False
+                    context.profits+=((data.current(context.coppercontract,'price')-                                   context.longcopper)/context.longcopper)
+                    context.profits-=((data.current(context.silvercontract,'price')-                                     context.shortsilver)/context.shortsilver)
+                    context.owned = False
+                    log.info('copper' + str(data.current(context.coppercontract,'price')))
+                    log.info('silver' + str(data.current(context.silvercontract,'price')))
+                elif(context.value8 < mean8 +0.4*std8) and (len(context.short)==0) and (context.coppercontract in context.long):
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('Sell copper')
+                    context.owned = False
+                    context.silvercopper1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.coppercontract,'price')-                                        context.longcopper)
+                    context.long = []
+                    context.profits+=(data.current(context.coppercontract,'price')-                                        context.longcopper)/context.longcopper
+                    log.info('copper' + str(data.current(context.coppercontract,'price')))
+                    log.info('silver' + str(data.current(context.silvercontract,'price')))
+                elif(data.current(context.coppercontract,'price')<context.longcopper*0.99) and (context.coppercontract in context.long):
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.coppercontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.coppercontract,'price')-                                        context.longcopper)/context.longcopper
+                if((context.value8 > mean8-0.4*std8) and (len(context.short)>0) and (context.silvercontract in context.long)):
+                    algo.order_target_percent(context.coppercontract,0)
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('Sell silver, Buy back copper')
+                    algo.order_target_percent(context.long[0],0)
+                    context.long = []
+                    context.short = []
+                    context.profits-=((data.current(context.coppercontract,'price')-                                   context.shortcopper)/context.shortcopper)
+                    context.profits+=((data.current(context.silvercontract,'price')-                                     context.longsilver)/context.longsilver)
+                    context.owned = False
+                    context.silvercopper1 = False
+                    log.info('copper' + str(data.current(context.coppercontract,'price')))
+                    log.info('silver' + str(data.current(context.silvercontract,'price')))
+                elif(context.value8 >mean8 -0.4*std8) and (len(context.short)==0) and (context.silvercontract in context.long):
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('Sell silver')
+                    context.owned = False
+                    context.silvercopper1 = False
+                    context.traded_today = True
+                    context.tr.append(data.current(context.silvercontract,'price')-                                        context.longsilver)
+                    context.long = []
+                    context.profits+=(data.current(context.silvercontract,'price')-                                        context.longsilver)/context.longsilver
+                    log.info('silver' + str(data.current(context.coppercontract,'price')))
+                elif(data.current(context.silvercontract,'price')<context.longsilver*0.99) and (context.silvercontract in context.long):
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('stop loss')
+                    log.info(data.current(context.silvercontract,'price'))
+                    context.long = []
+                    context.profits+=(data.current(context.silvercontract,'price')-                                        context.longsilver)/context.longsilver
+                    
+        if(len(context.short)>0):
+            contract = context.short[0]
+            if(context.goldsilver1):
+                if(context.value1 > mean1-0.4*std1) and len(context.long)==0 and contract == context.silvercontract:
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('Buy Back Silver')
+                    context.profits-=(data.current(context.silvercontract,'price')-                                    context.shortsilver)/context.shortsilver
+                    log.info(data.current(context.silvercontract,'price'))
+                    context.owned = False
+                    context.goldsilver1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.silvercontract,'price')>context.shortsilver*1.01) and contract == context.silvercontract:
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.silvercontract,'price')-                                    context.shortsilver)/context.shortsilver
+                    context.short = []
+                    log.info(data.current(context.silvercontract,'price'))
+                elif(context.value1 < mean1+0.4*std1) and len(context.long)==0 and contract == context.goldcontract:
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('Buy Back gold')
+                    context.profits-=(data.current(context.goldcontract,'price')-                                    context.shortgold)/context.shortgold
+                    log.info(data.current(context.goldcontract,'price'))
+                    context.owned = False
+                    context.goldsilver1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.goldcontract,'price')>context.shortgold*1.01) and contract == context.goldcontract:
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.goldcontract,'price')-                                    context.shortgold)/context.shortgold
+                    context.short = []
+                    log.info(data.current(context.goldcontract,'price'))
+            if(context.goldcopper1):
+                if(context.value2 > mean2-0.4*std2) and len(context.long)==0 and contract == context.coppercontract:
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('Buy Back copper')
+                    context.profits-=(data.current(context.coppercontract,'price')-                                    context.shortcopper)/context.shortcopper
+                    log.info(data.current(context.coppercontract,'price'))
+                    context.owned = False
+                    context.goldcopper1=False
+                    context.count += 2
+                    context.short = []
+                elif(data.current(context.coppercontract,'price')>context.shortcopper*2.03) and contract == context.coppercontract:
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.coppercontract,'price')-                                    context.shortcopper)/context.shortcopper
+                    context.short = []
+                    log.info(data.current(context.coppercontract,'price'))
+                elif(context.value2 < mean2+0.4*std2) and len(context.long)==0 and contract == context.goldcontract:
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('buy back gold')
+                    context.profits-=(data.current(context.goldcontract,'price')-                                    context.shortgold)/context.shortgold
+                    log.info(data.current(context.goldcontract,'price'))
+                    context.owned = False
+                    context.goldcopper1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.goldcontract,'price')>context.shortgold*1.01) and contract == context.goldcontract:
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.goldcontract,'price')-                                    context.shortgold)/context.shortgold
+                    context.short = []
+                    log.info(data.current(context.goldcontract,'price'))
+            if(context.goldpalladium1):
+                if(context.value3 > mean3-0.4*std3) and len(context.long)==0 and contract == context.palladiumcontract:
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('Buy Back palladium')
+                    context.profits-=(data.current(context.palladiumcontract,'price')-                                    context.shortpalladium)/context.shortpalladium
+                    log.info(data.current(context.palladiumcontract,'price'))
+                    context.owned = False
+                    context.goldpalladium1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.palladiumcontract,'price')>context.shortpalladium*1.01) and contract == context.palladiumcontract:
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.palladiumcontract,'price')-                                    context.shortpalladium)/context.shortpalladium
+                    context.short = []
+                    log.info(data.current(context.palladiumcontract,'price'))
+                elif(context.value3 < mean3+0.4*std3) and len(context.long)==0 and contract == context.goldcontract:
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('Buy Back gold')
+                    context.profits-=(data.current(context.goldcontract,'price')-                                    context.shortgold)/context.shortgold
+                    log.info(data.current(context.goldcontract,'price'))
+                    context.owned = False
+                    context.goldpalladium1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.goldcontract,'price')>context.shortgold*1.01) and contract == context.goldcontract:
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.goldcontract,'price')-                                    context.shortgold)/context.shortgold
+                    context.short = []
+                    log.info(data.current(context.goldcontract,'price'))
+            if(context.goldplatinum1):
+                
+                if(context.value4 > mean4-0.4*std4) and len(context.long)==0 and contract ==                         context.platinumcontract:
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('Buy Back platinum')
+                    context.profits-=(data.current(context.platinumcontract,'price')-                                    context.shortplatinum)/context.shortplatinum
+                    log.info(data.current(context.platinumcontract,'price'))
+                    context.owned = False
+                    context.goldplatinum1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.platinumcontract,'price')>context.shortplatinum*1.01) and contract == context.platinumcontract:
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.platinumcontract,'price')-                                    context.shortplatinum)/context.shortplatinum
+                    context.short = []
+                    log.info(data.current(context.platinumcontract,'price'))
+                elif(context.value4 < mean4+0.4*std4) and len(context.long)==0 and contract == context.goldcontract:
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('Buy Back gold')
+                    context.profits-=(data.current(context.goldcontract,'price')-                                    context.shortgold)/context.shortgold
+                    log.info(data.current(context.goldcontract,'price'))
+                    context.owned = False
+                    context.goldplatinum1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.goldcontract,'price')>context.shortgold*1.01) and contract == context.goldcontract:
+                    algo.order_target_percent(context.goldcontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.goldcontract,'price')-                                    context.shortgold)/context.shortgold
+                    context.short = []
+                    log.info(data.current(context.goldcontract,'price'))
+            if(context.copperplatinum1):
+                if(context.value6 > mean6-0.4*std6) and len(context.long)==0 and contract ==                         context.platinumcontract:
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('Buy Back platinum')
+                    context.profits-=(data.current(context.platinumcontract,'price')-                                    context.shortplatinum)/context.shortplatinum
+                    log.info(data.current(context.platinumcontract,'price'))
+                    context.owned = False
+                    context.copperplatinum1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.platinumcontract,'price')>context.shortplatinum*1.01) and contract == context.platinumcontract:
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.platinumcontract,'price')-                                    context.shortplatinum)/context.shortplatinum
+                    context.short = []
+                    log.info(data.current(context.platinumcontract,'price'))
+                elif(context.value6< mean6+0.4*std6) and len(context.long)==0 and contract == context.coppercontract:
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('Buy Back copper')
+                    context.profits-=(data.current(context.coppercontract,'price')-                                    context.shortcopper)/context.shortcopper
+                    log.info(data.current(context.coppercontract,'price'))
+                    context.owned = False
+                    context.copperplatinum1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.coppercontract,'price')>context.shortcopper*1.01) and contract == context.coppercontract:
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.coppercontract,'price')-                                    context.shortcopper)/context.shortcopper
+                    context.short = []
+                    log.info(data.current(context.coppercontract,'price'))
+            if(context.silverplatinum1):
+                if(context.value7 > mean7-0.4*std7) and len(context.long)==0 and contract ==                         context.platinumcontract:
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('Buy Back platinum')
+                    context.profits-=(data.current(context.platinumcontract,'price')-                                    context.shortplatinum)/context.shortplatinum
+                    log.info(data.current(context.platinumcontract,'price'))
+                    context.owned = False
+                    context.silverplatinum1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.platinumcontract,'price')>context.shortplatinum*1.01) and contract == context.platinumcontract:
+                    algo.order_target_percent(context.platinumcontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.platinumcontract,'price')-                                    context.shortplatinum)/context.shortplatinum
+                    context.short = []
+                    log.info(data.current(context.platinumcontract,'price'))
+                elif(context.value7< mean7+0.4*std7) and len(context.long)==0 and contract == context.silvercontract:
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('Buy Back silver')
+                    context.profits-=(data.current(context.silvercontract,'price')-                                    context.shortsilver)/context.shortsilver
+                    log.info(data.current(context.silvercontract,'price'))
+                    context.owned = False
+                    context.silverplatinum1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.silvercontract,'price')>context.shortsilver*1.01) and contract == context.silvercontract:
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.silvercontract,'price')-                                    context.shortsilver)/context.shortsilver
+                    context.short = []
+                    log.info(data.current(context.silvercontract,'price'))
+            if(context.silverpalladium1):
+                if(context.value5 > mean5-0.4*std5) and len(context.long)==0 and contract ==                         context.palladiumcontract:
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('Buy Back palladium')
+                    context.profits-=(data.current(context.palladiumcontract,'price')-                                    context.shortpalladium)/context.shortpalladium
+                    log.info(data.current(context.palladiumcontract,'price'))
+                    context.owned = False
+                    context.silverpalladium1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.palladiumcontract,'price')>context.shortpalladium*1.01) and contract == context.palladiumcontract:
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.palladiumcontract,'price')-                                    context.shortpalladium)/context.shortpalladium
+                    context.short = []
+                    log.info(data.current(context.palladiumcontract,'price'))
+                elif(context.value5< mean5+0.4*std5) and len(context.long)==0 and contract == context.silvercontract:
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('Buy Back silver')
+                    context.profits-=(data.current(context.silvercontract,'price')-                                    context.shortsilver)/context.shortsilver
+                    log.info(data.current(context.silvercontract,'price'))
+                    context.owned = False
+                    context.silverpalladium1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.silvercontract,'price')>context.shortsilver*1.01) and contract == context.silvercontract:
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.silvercontract,'price')-                                    context.shortsilver)/context.shortsilver
+                    context.short = []
+                    log.info(data.current(context.silvercontract,'price'))
+            if(context.silvercopper1):
+                if(context.value8 > mean8-0.4*std8) and len(context.long)==0 and contract ==                         context.coppercontract:
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('Buy Back copper')
+                    context.profits-=(data.current(context.coppercontract,'price')-                                    context.shortcopper)/context.shortcopper
+                    log.info(data.current(context.coppercontract,'price'))
+                    context.owned = False
+                    context.silvercopper1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.coppercontract,'price')>context.shortcopper*1.01) and contract == context.coppercontract:
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.coppercontract,'price')-                                    context.shortcopper)/context.shortcopper
+                    context.short = []
+                    log.info(data.current(context.coppercontract,'price'))
+                elif(context.value8< mean8+0.4*std8) and len(context.long)==0 and contract == context.silvercontract:
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('Buy Back silver')
+                    context.profits-=(data.current(context.silvercontract,'price')-                                    context.shortsilver)/context.shortsilver
+                    log.info(data.current(context.silvercontract,'price'))
+                    context.owned = False
+                    context.silvercopper1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.silvercontract,'price')>context.shortsilver*1.01) and contract == context.silvercontract:
+                    algo.order_target_percent(context.silvercontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.silvercontract,'price')-                                    context.shortsilver)/context.shortsilver
+                    context.short = []
+                    log.info(data.current(context.silvercontract,'price'))
+            if(context.copperpalladium1):
+                if(context.value9 > mean9-0.4*std9) and len(context.long)==0 and contract ==                         context.palladiumcontract:
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('Buy Back palladium')
+                    context.profits-=(data.current(context.palladiumcontract,'price')-                                    context.shortpalladium)/context.shortpalladium
+                    log.info(data.current(context.palladiumcontract,'price'))
+                    context.owned = False
+                    context.copperpalladium1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.palladiumcontract,'price')>context.shortpalladium*1.01) and contract == context.palladiumcontract:
+                    algo.order_target_percent(context.palladiumcontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.palladiumcontract,'price')-                                    context.shortpalladium)/context.shortpalladium
+                    context.short = []
+                    log.info(data.current(context.palladiumcontract,'price'))
+                elif(context.value9< mean9+0.4*std9) and len(context.long)==0 and contract == context.coppercontract:
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('Buy Back copper')
+                    context.profits-=(data.current(context.coppercontract,'price')-                                    context.shortcopper)/context.shortcopper
+                    log.info(data.current(context.coppercontract,'price'))
+                    context.owned = False
+                    context.copperpalladium1=False
+                    context.count += 1
+                    context.short = []
+                elif(data.current(context.coppercontract,'price')>context.shortcopper*1.01) and contract == context.coppercontract:
+                    algo.order_target_percent(context.coppercontract,0)
+                    log.info('stop loss')
+                    context.profits-=(data.current(context.coppercontract,'price')-                                    context.shortcopper)/context.shortcopper
+                    context.short = []
+                    log.info(data.current(context.coppercontract,'price'))
+        record(prof = context.profits)
+        record(leverage = context.account.leverage)
